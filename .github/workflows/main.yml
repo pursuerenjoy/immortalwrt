@@ -1,0 +1,63 @@
+name: Build ImmortalWrt for RT-N56U-B1
+
+on:
+  workflow_dispatch: # 允许你手动点击按钮触发编译
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /local/lib/node_modules
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils qemu-utils rsync scons squashfs-tools subversion swig texinfo u-boot-tools upx-ucl unzip xreg xz-utils zlib1g-dev lib32gcc-s1 libc6-dev-i386-amd64-cross
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+
+    - name: Download source code
+      run: |
+        git clone --depth 1 https://github.com openwrt
+        
+    - name: Inject TF Card DTS Patch
+      run: |
+        cd openwrt
+        # 强制在你的华硕设备树末尾追加激活 TF 卡的代码
+        echo -e "\n&sdhci {\n\tstatus = \"okay\";\n};" >> target/linux/ramips/dts/mt7621_asus_rt-n56u-b1.dts
+
+    - name: Load Custom Configuration
+      run: |
+        cd openwrt
+        # 写入你的机型配置和驱动选择
+        cat <<EOF > .config
+        CONFIG_TARGET_ramips=y
+        CONFIG_TARGET_ramips_mt7621=y
+        CONFIG_TARGET_ramips_mt7621_DEVICE_asus_rt-n56u-b1=y
+        CONFIG_PACKAGE_kmod-sdhci=y
+        CONFIG_PACKAGE_kmod-sdhci-mt7620=y
+        CONFIG_PACKAGE_kmod-fs-ext4=y
+        CONFIG_PACKAGE_kmod-fs-vfat=y
+        CONFIG_PACKAGE_kmod-fs-ntfs3=y
+        CONFIG_PACKAGE_block-mount=y
+        EOF
+        
+        # 补全默认配置
+        make defconfig
+
+    - name: Compile the firmware
+      run: |
+        cd openwrt
+        make download -j8
+        make -j$(nproc) || make -j1 V=s
+
+    - name: Upload firmware to Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ImmortalWrt_RT-N56U-B1_Firmware
+        path: openwrt/bin/targets/ramips/mt7621/*sysupgrade.bin
